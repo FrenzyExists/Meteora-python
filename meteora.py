@@ -56,11 +56,10 @@ else:
 # Load Music
 music_theme = "resources/music_theme.wav"
 music_game = "resources/music_game.wav"
-music_gameover = "resources/music_gameover.wav"
-# music_highscore = "resources/music_highscore.ogg"
-# sfx_select = "resources/sfx_select.ogg"
-# sfx_explosion = "resources/sfx_explosion.ogg"
-# sfx_selected = "resources/sfx_selected.ogg"
+music_gameover = "resources/music_sad.wav"
+sfx_explosion = "resources/e1.wav"
+sfx_shield = "resources/e3.wav"
+sfx_shoot = "resources/d6.wav"
 
 
 def offset(value):
@@ -69,6 +68,22 @@ def offset(value):
     while temp < n:
         yield temp
         temp += 1
+
+# //// Fade Screen ////////////////////////////////////////////////////////////////////////////////////////////////////////
+def fade(size, surface, fade_color=(0,0,0), delay=5):
+    fade_surface = pygame.Surface(size)
+    fade_surface.fill(fade_color)
+    for alpha in range(300):
+        fade_surface.set_alpha(alpha)
+        redrawWindow(surface)
+        surface.blit(fade_surface, (0, 0))
+        pygame.display.update()
+        pygame.time.delay(delay)
+    
+
+def redrawWindow(surface, fill=BACKGROUND_COLOR):
+    surface.fill(fill)
+    # for flickering update here :)
 
 # //// Button //////////////////////////////////////////////////////////////////////////////////////////////////////////
 class Button:
@@ -91,7 +106,7 @@ class Button:
     def set_color(self, _color):
         self.color = _color
 
-# Slider
+# //// Slider //////////////////////////////////////////////////////////////////////////////////////////////////////////
 # Note: Some pieces of this code is from AustL's Pygame Widgets module
 class Slider:
         def __init__(self, x_pos, y_pos, width, value=0, min_value=0, max_value=99, step=1, height=5, slider_width=10, slider_height=10, bar_color=(200, 200, 200), slider_color=(100, 23, 44)):
@@ -156,6 +171,9 @@ class Slider:
 
         def set_slider_color(self, _color):
             self.slider.fill(color)
+        
+        def get_value(self):
+            return self.value
 
 # ///// Player (Single Object) //////////////////////////////////////////////////////////////////////////////////////////
 class Player:
@@ -187,6 +205,8 @@ class Player:
         self.vel_ = vec(0, 0)
 
         self.vel = 0
+
+        self.is_hit = False # Is the player being hit?
 
     def draw(self, state, surface):
         pygame.draw.rect(surface, self.color, self.rect) if state is True else None
@@ -247,7 +267,7 @@ class Enemy(pygame.sprite.Sprite):
     def draw(self, surface):
         pygame.draw.rect(surface, ENEMY_COLOR, self.rect)
 
-    def update(self, score_object):
+    def update(self, score_object, player_object):
         self.rect.y += self.vy
         if self.rect.top > WINDOW_SIZE[1] + 12:
             self.rect.x = random.randrange(WINDOW_SIZE[0] - self.rect.width)
@@ -256,11 +276,13 @@ class Enemy(pygame.sprite.Sprite):
 
         if self.rect.top > WINDOW_SIZE[1]:
             if not self.has_counted:
-                score_object.set_score(1)
-                self.has_counted = True
-
-        if self.rect.bottom <= 0:
-            self.has_counted = False
+                if player_object.is_hit == False:
+                    score_object.set_score(1)
+                    self.has_counted = True
+    
+        if player_object.is_hit: 
+            if self.rect.bottom <= 0:
+                self.has_counted = False
 
 
     def spawn(self, quantity, group):
@@ -268,8 +290,31 @@ class Enemy(pygame.sprite.Sprite):
             grunt = Enemy()
             group.add(grunt)
 
+# ///// Special Effects ////////////////////////////////////////////////////////////////////////////////////////////////
+class Special_Effects:
+    def __init__(self):
+        self.particle_list = []
+        
+    def particle(self, x, y, x_velocity, y_velocity, timeout, cycle, particle_color=PLAYER_COLOR, trigger=False):
+        timeout = abs(timeout)
+        x_velocity = abs(x_velocity)
+        y_velocity = abs(y_velocity)
 
-# Powerup //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        if trigger == True:
+            for i in range(cycle):
+                self.particle_list.append([[x, y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
+
+        for i in self.particle_list:
+            i[0][0] += i[1][0]
+            i[0][1] += i[1][1]
+            i[2] -= timeout
+            i[1][0] +=  random.uniform(-x_velocity, x_velocity)
+            i[1][1] +=  random.uniform(-y_velocity, y_velocity)
+            pygame.draw.circle(screen, particle_color, [int(i[0][0]), int(i[0][1])], int(i[2]))
+            if i[2] <= 0:
+                self.particle_list.remove(i)
+
+# ///// Powerup ////////////////////////////////////////////////////////////////////////////////////////////////////////
 class Powerup(pygame.sprite.Sprite):
     def __init__(self):
         pygame.sprite.Sprite.__init__(self)
@@ -281,7 +326,7 @@ class Powerup(pygame.sprite.Sprite):
         self.height = 30
 
         self.image = pygame.Surface((self.width, self.height))
-        self.image.fill(ENEMY_COLOR)
+        
         self.rect = self.image.get_rect()
 
         self.rect.x = random.randrange(WINDOW_SIZE[0] - self.rect.width)
@@ -290,16 +335,22 @@ class Powerup(pygame.sprite.Sprite):
         self.vy = random.randrange(3, 6)
 
         self.type = random.choice(['shield', 'ammo'])
+        if self.type == "ammo":
+            self.type_ammo()
+        elif self.type == "shield":
+            self.type_shield()
 
     def type_shield(self):
 
-        self.width = 30
-        self.height = 30
+        self.width = 20
+        self.height = 20
+        self.image.fill(SHIELD_COLOR)
+        
 
-    def type_ammo(self, player):
-
-        self.width = 30
-        self.height = 30
+    def type_ammo(self):
+        self.width = 15
+        self.height = 20
+        self.image.fill(AMMO_COLOR)
     
     # Yes, I took this from the enemy class, shut up
     def update(self, score_object):
@@ -319,7 +370,7 @@ class Powerup(pygame.sprite.Sprite):
 
 
     def spawn(self, quantity, group):
-        probability = 54 #percentage of a powerup to appear in current moment
+        probability = 54 # percentage of a powerup to appear in current moment
 
         for i in range(quantity):
             powerup = Powerup()
@@ -327,7 +378,6 @@ class Powerup(pygame.sprite.Sprite):
 
     def collide(self, rect):
         pass
-
 
 # Score ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 class Score:
@@ -351,7 +401,7 @@ class Score:
                 score_file.close()
 
     def get_highscore(self):
-        return  int("".join(self.highscore[0])) # Make whatever the fuck this is drier
+        return  int("".join(self.highscore[0])) # Make whatever the fuck this is, thing?
 
     def get_score(self):
         return self.score
@@ -365,21 +415,23 @@ class Score:
             writer.writerow([new_score])
             score_file.close()
 
-
 # Options Loop /////////////////////////////////////////////////////////////////////////////////////////////////////////
 def options():
     is_clicking = False
     running = True
 
+    pointer_particle = Special_Effects()
 
     main_menu = Button(140, 40, 90, 450, "Back to Menu", ENEMY_COLOR, FONT_COLOR)
     music_slider = Slider(190, 75, 100, 10)
-    sfx_slider = Slider(190, 115, 100, 10)
+    sfx_slider = Slider(190, 115, 100, pygame.mixer.music.get_volume()*100-1)
+    
+    print(pygame.mixer.music.get_volume()*100)
 
     particle_effects = []
-    mouse_particle_effects = []
 
     while running:
+        pygame.mixer.music.set_volume(sfx_slider.get_value()/100)
         mouse_x, mouse_y = pygame.mouse.get_pos()
 
         if main_menu.rect.collidepoint(mouse_x, mouse_y):
@@ -396,12 +448,11 @@ def options():
             if event.type == MOUSEBUTTONDOWN:
                 if event.button == 1:
                     is_clicking = True
+        
+        # Particle Blast
+        pointer_particle.particle(mouse_x, mouse_y, 0.2, 0, 0.03, 100, trigger=is_clicking)
 
-        if is_clicking:
-            for i in range(100):
-                mouse_particle_effects.append([ [mouse_x, mouse_y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
-                # particle_list.append([ [mouse_x, mouse_y], [random.randint(0, 40) / 10 -2, -2], random.randint(2, 6)])
-
+        # Particle emiting
         particle_effects.append([ [mouse_x, mouse_y], [random.randint(10, 20) / 10 -2, random.randint(10, 20) / 10 -2], random.randint(2, 5)])
 
         screen.blit(font.render("Options", 0, (255, 240, 230)), (120, 20))
@@ -416,16 +467,6 @@ def options():
         music_slider.get_input(get_events)
         sfx_slider.get_input(get_events)
 
-        for i in mouse_particle_effects:
-            i[0][0] += i[1][0]
-            i[0][1] += i[1][1]
-            i[2] -= 0.02
-            i[1][0] +=  random.uniform(-0.3, 0.3)
-            pygame.draw.circle(screen, PLAYER_COLOR, [int(i[0][0]), int(i[0][1])], int(i[2]))
-            if i[2] <= 0:
-                mouse_particle_effects.remove(i)
-
-
         for i in particle_effects:
             i[0][0] += i[1][0]
             i[0][1] += i[1][1]
@@ -438,7 +479,6 @@ def options():
         pygame.display.update()
         clock.tick(30)
 
-
 # Menu Loop ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def menu():
     is_clicking = False
@@ -448,7 +488,7 @@ def menu():
     exit_game = Button(80, 40, 120, 250, "Exit", BUTTON_COLOR, FONT_COLOR)
 
     particle_effects = []
-    mouse_particle_effects = []
+    pointer_particle = Special_Effects()
 
     # Load music
     pygame.mixer.music.load(music_theme)
@@ -460,6 +500,8 @@ def menu():
         if start_game.rect.collidepoint(mouse_x, mouse_y):
             start_game.set_color(BUTTON_COLOR_SELECTED)
             if is_clicking:
+                pygame.mixer.music.fadeout(1300)
+                fade(WINDOW_SIZE, screen)
                 main()
         else:
             start_game.set_color(BUTTON_COLOR)
@@ -487,12 +529,11 @@ def menu():
             if event.type == MOUSEBUTTONDOWN:
                 if event.button == 1:
                     is_clicking = True
+ 
+        # Particle Blast
+        pointer_particle.particle(mouse_x, mouse_y, 0.2, 0, 0.03, 100, trigger=is_clicking)
 
-        if is_clicking:
-            for i in range(100):
-                mouse_particle_effects.append([ [mouse_x, mouse_y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
-                
-
+        # Particle emiting
         particle_effects.append([ [mouse_x, mouse_y], [random.randint(10, 20) / 10 -2, random.randint(10, 20) / 10 -2], random.randint(2, 5)])
 
         screen.blit(font.render("Meteora", 0, (255, 240, 230)), (120, 10))
@@ -501,16 +542,6 @@ def menu():
         start_game.draw(screen)
         options_game.draw(screen)
         exit_game.draw(screen)
-
-        for i in mouse_particle_effects:
-            i[0][0] += i[1][0]
-            i[0][1] += i[1][1]
-            i[2] -= 0.02
-            i[1][0] +=  random.uniform(-0.3, 0.3)
-            pygame.draw.circle(screen, PLAYER_COLOR, [int(i[0][0]), int(i[0][1])], int(i[2]))
-            if i[2] <= 0:
-                mouse_particle_effects.remove(i)
-
 
         for i in particle_effects:
             i[0][0] += i[1][0]
@@ -521,7 +552,6 @@ def menu():
             if i[2] <= 0:
                 particle_effects.remove(i)
 
-
         pygame.display.update()
         clock.tick(30)
 
@@ -529,15 +559,11 @@ def menu():
 # Game Over Loop ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def game_over(Score_obj):
 
-    print(Score_obj.get_score())
-    print(Score_obj.get_highscore())
-
     if Score_obj.get_score() > Score_obj.get_highscore():
         message = "Highscore!!!"
         Score_obj.set_highscore(Score_obj.get_score())
     else:
         message = "Score"
-
 
     is_clicking = False
 
@@ -545,12 +571,10 @@ def game_over(Score_obj):
     play_again =     Button(130, 40, 95, 250, "One more try!", ENEMY_COLOR, FONT_COLOR)
 
     particle_effects = []
-    mouse_particle_effects = []
-
+    pointer_particle = Special_Effects()
 
     while True:
         mouse_x, mouse_y = pygame.mouse.get_pos()
-
 
         if return_to_menu.rect.collidepoint(mouse_x, mouse_y):
             return_to_menu.set_color(BUTTON_COLOR_SELECTED)
@@ -565,7 +589,6 @@ def game_over(Score_obj):
                 main()
         else:
             play_again.set_color(BUTTON_COLOR)
-
 
         is_clicking = False
         screen.fill(BACKGROUND_COLOR)
@@ -583,23 +606,11 @@ def game_over(Score_obj):
         screen.blit(font.render(message, 0, TEXT_COLOR), ( int(WINDOW_SIZE[0]/2)-int(font.size(message)[0]/2), WINDOW_SIZE[1] - 100))
         screen.blit(font.render(str(Score_obj.get_score()), 0, TEXT_COLOR), ( int(WINDOW_SIZE[0]/2) - int(font.size(str(Score_obj.get_score()))[0]) + 10, WINDOW_SIZE[1] - 60))
 
+        # Particle Blast
+        pointer_particle.particle(mouse_x, mouse_y, 0.2, 0, 0.03, 100, trigger=is_clicking)
 
-        if is_clicking:
-            for i in range(100):
-                mouse_particle_effects.append([ [mouse_x, mouse_y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
-                
-
+        # Particle emiting
         particle_effects.append([ [mouse_x, mouse_y], [random.randint(10, 20) / 10 -2, random.randint(10, 20) / 10 -2], random.randint(2, 5)])
-
-        for i in mouse_particle_effects:
-            i[0][0] += i[1][0]
-            i[0][1] += i[1][1]
-            i[2] -= 0.02
-            i[1][0] +=  random.uniform(-0.3, 0.3)
-            pygame.draw.circle(screen, PLAYER_COLOR, [int(i[0][0]), int(i[0][1])], int(i[2]))
-            if i[2] <= 0:
-                mouse_particle_effects.remove(i)
-
 
         for i in particle_effects:
             i[0][0] += i[1][0]
@@ -609,7 +620,6 @@ def game_over(Score_obj):
             pygame.draw.circle(screen, PLAYER_COLOR, [int(i[0][0]), int(i[0][1])], int(i[2]))
             if i[2] <= 0:
                 particle_effects.remove(i)
-
 
         pygame.display.update()
         clock.tick(30)
@@ -626,22 +636,22 @@ def pause():
                     running = False
                     break
 
-        screen.blit(font.render("Pause ", 0, TEXT_COLOR), ( 132, 230))
+        screen.blit(font.render("Pause ", 0, TEXT_COLOR), (132, 230))
         pygame.display.update()
         clock.tick(30)
 
 # ////// Game Loop ////////////////////////////////////////////////////////////////////////////////////////////////////
 def main():
-
     running = True 
 
     # Initiate Objects
-    player_group = pygame.sprite.Group()
     mobs = pygame.sprite.Group()
+    friends = pygame.sprite.Group()
+
     P = Player()
-    
     enemy = Enemy()
     score = Score()
+    powerup = Powerup()
     
     # Had to put it here or else I'll end up with a method checking for the highscore every single damn time, and I'm not Yandere enough to do that
     highscore = str(score.get_highscore())
@@ -655,7 +665,7 @@ def main():
     # Explosion Counter, this is how I can control how many particle burst the game will create when the player looses
     gm_counter = 2
     game_over_counter = 60
-    is_hit = False
+    trigger = False
     explosion_particle = []
 
     while running:
@@ -668,8 +678,11 @@ def main():
                 if event.key == K_ESCAPE:
                     exit()
                 if event.key == K_j: # Debug
-                    enemy.spawn(1, mobs)
+                    # enemy.spawn(1, mobs)
+                    powerup.spawn(1, friends)
                     print("Mob Generated")
+                    for i in friends:
+                        print(i.type)
                 if event.key == K_SPACE:
                     pause()
 
@@ -684,12 +697,10 @@ def main():
  
         for i in range(8):
             if pygame.sprite.spritecollideany(P, mobs):
-
-                is_hit = True
+                P.is_hit = True
                 break
         
-        if is_hit == True:
-            
+        if P.is_hit == True:
             game_over_counter -= 1
             P.set_color(BACKGROUND_COLOR)
             while gm_counter != 0:
@@ -700,10 +711,13 @@ def main():
                 
                 game_over(score)
             
-
         P.draw(True, screen)
-        mobs.update(score)
+        mobs.update(score, P)
         mobs.draw(screen)
+
+        friends.draw(screen)
+        friends.update(score)
+
         P.key_manager()
         P.update()
 
@@ -722,6 +736,34 @@ def main():
         pygame.display.update()
         clock.tick(30)
 
-
 if __name__ == '__main__':
     menu()
+
+
+"""
+To implement:
+
+fade in fade out screen
+screenshake
+shooting
+bullet system
+shield
+sound effects
+changing
+
+add door sound (for fun)
+
+bullet sound: D6
+
+Explosion sound: E1
+
+Shield: E3
+        # if self.rect.top > WINDOW_SIZE[1]:
+        #     if not self.has_counted:
+        #         score_object.set_score(1)
+        #         self.has_counted = True
+
+        # if self.rect.bottom <= 0:
+        #     self.has_counted = Falseange(WINDOW_SIZE[0] - self.rect.width)
+
+"""
