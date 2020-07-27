@@ -61,8 +61,8 @@ music_theme = "resources/music_theme.wav"
 music_game = "resources/music_game.wav"
 music_gameover = "resources/music_sad.wav"
 sfx_explosion = "resources/e1.wav"
-sfx_shield = "resources/e3.wav"
-sfx_shoot = "resources/d6.wav"
+sfx_bullet_to_mob = "resources/d6.ogg"
+sfx_it = "resources/it_is_there.wav"
 
 # //// Fade Screen ////////////////////////////////////////////////////////////////////////////////////////////////////////
 def fade(size, surface, fade_color=(0,0,0), delay=5):
@@ -85,7 +85,7 @@ def set_all_vol(sounds, mult=100-1):
         sound.set_volume(min(vol*mult, 1.0))
 
 # Generate library
-library(sfx_data, sfx_explosion, sfx_shield, sfx_shoot)
+library(sfx_data, sfx_explosion, sfx_bullet_to_mob, sfx_it)
 library(music_data, music_theme, music_game, music_gameover)
 
 # From StackOverflow 
@@ -307,7 +307,8 @@ class Player(pygame.sprite.Sprite):
         self.color = _color
     
     def set_ammo(self, amount):
-        self.ammo += amount
+        if not self.is_hit:
+            self.ammo += amount
     
     def get_ammo(self):
         return self.ammo
@@ -603,7 +604,10 @@ def menu():
             if event.type == MOUSEBUTTONDOWN:
                 if event.button == 1:
                     is_clicking = True
- 
+                    
+        if round(random.random(), 4) < 0.0010:
+            sfx_data[2].play(0)
+
         # Particle Blast
         pointer_particle.particle(mouse_x, mouse_y, 0.2, 0, 0.03, 100, trigger=is_clicking)
 
@@ -646,6 +650,8 @@ def game_over(Score_obj):
 
     particle_effects = []
     pointer_particle = Special_Effects()
+    
+    music_data[2].play(-1)
 
     while True:
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -653,6 +659,8 @@ def game_over(Score_obj):
         if return_to_menu.rect.collidepoint(mouse_x, mouse_y):
             return_to_menu.set_color(BUTTON_COLOR_SELECTED)
             if is_clicking:
+                music_data[2].fadeout(1900)
+                fade(WINDOW_SIZE, main_screen)
                 menu()
         else:
             return_to_menu.set_color(BUTTON_COLOR)
@@ -660,6 +668,8 @@ def game_over(Score_obj):
         if play_again.rect.collidepoint(mouse_x, mouse_y):
             play_again.set_color(BUTTON_COLOR_SELECTED)
             if is_clicking:
+                music_data[2].fadeout(1900)
+                fade(WINDOW_SIZE, main_screen)
                 main()
         else:
             play_again.set_color(BUTTON_COLOR)
@@ -739,10 +749,7 @@ def main():
     offset = repeat((0,0))
 
     # Load music
-    pygame.mixer.music.stop()
-    pygame.mixer.music.load(music_game)
-    pygame.mixer.music.play(-1)
-    # music_data[1].play(-1)
+    music_data[1].play(-1)
     
     # Explosion Counter, this is how I can control how many particle burst the game will create when the player looses
     gm_counter = 2
@@ -768,13 +775,7 @@ def main():
                     pause()
                 
                 if event.key == K_z:
-                    # TODO Figure out a way to fix sound issue
-                    # sfx_data[1].play(1)
-                    # pygame.mixer.Sound(sfx_shoot).play(1)
-                    # pygame.mixer.music.play(1)
-                    # pygame.mixer.music
                     P.shoot(bullets)
-
 
         if len(mobs.sprites()) != 20:
             if counter % 15 == 0:
@@ -795,14 +796,18 @@ def main():
                 P.kill()
             P.set_shield(False)
         
-        pygame.sprite.groupcollide(bullets, mobs, True, True)
+        bullet_hit = pygame.sprite.groupcollide(bullets, mobs, True, True)
+        for k in bullet_hit:
+            sfx_data[1].play(0)
+            for i in range(100):
+                explosion_particle.append([[k.rect.x, k.rect.y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
 
         if P.is_hit:
             game_over_counter -= 1
             P.set_color(BACKGROUND_COLOR)
             if trigger == True:
-                pygame.mixer.music.load(sfx_explosion)
-                pygame.mixer.music.play(0)
+                music_data[1].stop()
+                sfx_data[0].play(0)
                 trigger = False
             while gm_counter != 0:
                 offset = screenshake()
@@ -845,21 +850,3 @@ def main():
 
 if __name__ == '__main__':
     menu()
-
-
-"""
-To implement:
-
-screenshake DONE!
-shooting DONE!
-shield - DONE!
-sound effects (fix sound issue)
-
-remove unused variables
-
-add door sound (for fun)
-
-bullet sound: D6
-
-Shield: E3
-"""
