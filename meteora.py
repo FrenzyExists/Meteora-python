@@ -5,6 +5,7 @@ from sys import exit
 import random
 import csv
 from pathlib import Path
+from itertools import repeat
 
 # Constants
 PLAYER_COLOR = (199, 208, 215)
@@ -33,12 +34,14 @@ pygame.mouse.set_visible(False)
 
 vec = pygame.math.Vector2 # player
 
-# main_screen = pygame.display.set_mode(WINDOW_SIZE, 0, 32)
-# screen = main_screen.copy()
-screen = pygame.display.set_mode(WINDOW_SIZE, 0, 32)
+# Initialize Surfaces
+main_screen = pygame.display.set_mode(WINDOW_SIZE, 0, 32)
+screen = main_screen.copy() 
+
+sfx_data = []
+music_data = []
 
 # Load resources
-
 if Path("resources/Pixelar_Regular.ttf").exists():
     font = pygame.font.Font("resources/Pixelar_Regular.ttf", 26)
     print("Pixelar Font found")
@@ -61,14 +64,6 @@ sfx_explosion = "resources/e1.wav"
 sfx_shield = "resources/e3.wav"
 sfx_shoot = "resources/d6.wav"
 
-
-def offset(value):
-    value = abs(value)
-    temp = 0
-    while temp < n:
-        yield temp
-        temp += 1
-
 # //// Fade Screen ////////////////////////////////////////////////////////////////////////////////////////////////////////
 def fade(size, surface, fade_color=(0,0,0), delay=5):
     fade_surface = pygame.Surface(size)
@@ -80,6 +75,29 @@ def fade(size, surface, fade_color=(0,0,0), delay=5):
         pygame.display.update()
         pygame.time.delay(delay)
     
+def library(target_list, *args):
+    for i in args:
+        target_list.append(pygame.mixer.Sound(i))
+
+def set_all_vol(sounds, mult=100-1):
+    for sound in sounds:
+        vol = sound.get_volume()
+        sound.set_volume(min(vol*mult, 1.0))
+
+# Generate library
+library(sfx_data, sfx_explosion, sfx_shield, sfx_shoot)
+library(music_data, music_theme, music_game, music_gameover)
+
+# From StackOverflow 
+def screenshake():
+    shk = -1
+    for i in range(0, random.randint(3, 5)):
+        for x in range(0, 20, random.randint(6, 10)):
+            yield (x * shk, 0)
+        for x in range(20, 0, random.randint(6, 10)):
+            yield (x * shk, 0)
+    while True:
+        yield (0, 0)
 
 def redrawWindow(surface, fill=BACKGROUND_COLOR):
     surface.fill(fill)
@@ -175,18 +193,60 @@ class Slider:
         def get_value(self):
             return self.value
 
+# ///// Bullet //////////////////////////////////////////////////////////////////////////////////////////
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        
+        self.width = 10
+        self.height = 20
+
+        self.image = pygame.Surface((self.width, self.height))
+        self.image.fill(AMMO_COLOR)
+        self.rect = self.image.get_rect()
+
+        # Start Position     
+        self.rect.center = (int(x), int(y))
+
+        self.pos = vec(int(x), int(y))
+        self.acc = vec(0, 0)
+        self.vel_ = vec(0, 0)
+        self.fric = 0.1
+        self.vel = 0
+        
+    def draw(self, surface):
+        pygame.draw.rect(surface, AMMO_COLOR, self.rect)
+
+    def update(self):
+        self.acc.y = -10
+
+        self.acc += self.vel_ * self.fric
+        self.vel_ += self.acc
+        self.pos += self.vel_ + 1.2 * self.acc
+
+        self.rect.center = self.pos
+        if abs(self.pos[1])  > WINDOW_SIZE[1]:
+            self.kill()
+
 # ///// Player (Single Object) //////////////////////////////////////////////////////////////////////////////////////////
-class Player:
+class Player(pygame.sprite.Sprite):
     def __init__(self):
-        self.x_pos = 140
-        self.y_pos = 500
+        pygame.sprite.Sprite.__init__(self)
+
         self.width = 30
         self.height = 30
-        self.friction = 0.6
-        self.acceleration = 0.4
+
+        self.color = PLAYER_COLOR
+
+        self.image = pygame.Surface((self.width, self.height))
+        self.image.fill(self.color)
+        self.rect = self.image.get_rect()
+
         self.max_vel = 5.0
         self.fric = -0.1
-        self.color = PLAYER_COLOR
+
+        # Shield 
+        self.has_shield = False
 
         # bullets, you start with none
         self.ammo = 0
@@ -198,7 +258,7 @@ class Player:
         # last shot
         self.last_shot = pygame.time.get_ticks()        
 
-        self.rect = pygame.rect.Rect((WINDOW_SIZE[0], WINDOW_SIZE[1], self.width, self.height))
+        # self.rect = pygame.rect.Rect((WINDOW_SIZE[0], WINDOW_SIZE[1], self.width, self.height))
         self.rect.center = (int(WINDOW_SIZE[0]/2), int(WINDOW_SIZE[1]-20))
         self.pos = vec(WINDOW_SIZE[0]/2, WINDOW_SIZE[1]-20)
         self.acc = vec(0, 0)
@@ -225,20 +285,38 @@ class Player:
         self.vel_ += self.acc
         self.pos += self.vel_ + 0.5 * self.acc
 
-        self.rect.center = self.pos
+        self.rect.center = int(self.pos[0]), int(self.pos[1])
 
+    def shoot(self, group):
+        print(self.ammo)
+        if self.ammo > 0 and not self.is_hit:
+            bullet = Bullet(self.rect.centerx, self.rect.top)
+            group.add(bullet)
+            self.set_ammo(-1)
+        
     def update(self):
         if self.pos[0] - self.width/3 > WINDOW_SIZE[0]:
             self.pos[0] = 0
         if self.pos[0] + self.width/3 < 0:
             self.pos[0] = WINDOW_SIZE[0]
 
-    def shoot(self):
-        bullet = Bullet()
-        self.ammo -=1
+        if self.ammo > self.max_ammo: 
+            self.ammo = self.max_ammo
     
     def set_color(self, _color):
         self.color = _color
+    
+    def set_ammo(self, amount):
+        self.ammo += amount
+    
+    def get_ammo(self):
+        return self.ammo
+    
+    def get_shield(self):
+        return self.has_shield
+    
+    def set_shield(self, boolean_state):
+        self.has_shield = boolean_state
 
 # ///// Enemy (Single Object) //////////////////////////////////////////////////////////////////////////////////////////
 class Enemy(pygame.sprite.Sprite):
@@ -256,9 +334,9 @@ class Enemy(pygame.sprite.Sprite):
         self.rect.y = random.randrange(-220, -40)
         self.vy = random.randrange(2, 8)
 
-        self.is_drawn = True
+        self.is_hit = False # Is the enemy hit (for bullet)
 
-        self.has_collided_with_screen = False
+        # self.has_collided_with_screen = False
         self.has_counted = False
 
     def move(self):
@@ -269,10 +347,12 @@ class Enemy(pygame.sprite.Sprite):
 
     def update(self, score_object, player_object):
         self.rect.y += self.vy
+        
         if self.rect.top > WINDOW_SIZE[1] + 12:
             self.rect.x = random.randrange(WINDOW_SIZE[0] - self.rect.width)
             self.rect.y = random.randrange(-240, -40)
             self.vy = random.randrange(2, 12)
+            self.has_counted = False
 
         if self.rect.top > WINDOW_SIZE[1]:
             if not self.has_counted:
@@ -319,8 +399,7 @@ class Powerup(pygame.sprite.Sprite):
     def __init__(self):
         pygame.sprite.Sprite.__init__(self)
         # Powerup class can acts as three different powerups:
-        # Shield
-        # Ammo
+        # Shield and Ammo
 
         self.width = 30
         self.height = 30
@@ -341,33 +420,32 @@ class Powerup(pygame.sprite.Sprite):
             self.type_shield()
 
     def type_shield(self):
-
         self.width = 20
         self.height = 20
         self.image.fill(SHIELD_COLOR)
         
-
     def type_ammo(self):
         self.width = 15
         self.height = 20
         self.image.fill(AMMO_COLOR)
     
     # Yes, I took this from the enemy class, shut up
-    def update(self, score_object):
+    def update(self, score_object, player_object):
         self.rect.y += self.vy
         if self.rect.top > WINDOW_SIZE[1] + 12:
             self.rect.x = random.randrange(WINDOW_SIZE[0] - self.rect.width)
             # self.rect.y = random.randrange(-240, -40)
             self.vy = random.randrange(2, 12)
+        
+        if self.rect.colliderect(player_object.rect):
+            if self.type == "shield":
+                player_object.has_shield = True
+            if self.type == "ammo":
+                player_object.set_ammo(1)
+            self.kill()
 
-        # if self.rect.top > WINDOW_SIZE[1]:
-        #     if not self.has_counted:
-        #         score_object.set_score(1)
-        #         self.has_counted = True
-
-        # if self.rect.bottom <= 0:
-        #     self.has_counted = False
-
+        if self.rect.top > WINDOW_SIZE[1]:
+            self.kill()
 
     def spawn(self, quantity, group):
         probability = 54 # percentage of a powerup to appear in current moment
@@ -375,9 +453,6 @@ class Powerup(pygame.sprite.Sprite):
         for i in range(quantity):
             powerup = Powerup()
             group.add(powerup)
-
-    def collide(self, rect):
-        pass
 
 # Score ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 class Score:
@@ -425,8 +500,6 @@ def options():
     main_menu = Button(140, 40, 90, 450, "Back to Menu", ENEMY_COLOR, FONT_COLOR)
     music_slider = Slider(190, 75, 100, 10)
     sfx_slider = Slider(190, 115, 100, pygame.mixer.music.get_volume()*100-1)
-    
-    print(pygame.mixer.music.get_volume()*100)
 
     particle_effects = []
 
@@ -476,6 +549,7 @@ def options():
             if i[2] <= 0:
                 particle_effects.remove(i)
 
+        main_screen.blit(screen, (0,0))
         pygame.display.update()
         clock.tick(30)
 
@@ -501,7 +575,7 @@ def menu():
             start_game.set_color(BUTTON_COLOR_SELECTED)
             if is_clicking:
                 pygame.mixer.music.fadeout(1300)
-                fade(WINDOW_SIZE, screen)
+                fade(WINDOW_SIZE, main_screen)
                 main()
         else:
             start_game.set_color(BUTTON_COLOR)
@@ -552,9 +626,9 @@ def menu():
             if i[2] <= 0:
                 particle_effects.remove(i)
 
+        main_screen.blit(screen, (0,0))
         pygame.display.update()
         clock.tick(30)
-
 
 # Game Over Loop ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def game_over(Score_obj):
@@ -621,6 +695,7 @@ def game_over(Score_obj):
             if i[2] <= 0:
                 particle_effects.remove(i)
 
+        main_screen.blit(screen, (0,0))
         pygame.display.update()
         clock.tick(30)
 
@@ -637,6 +712,7 @@ def pause():
                     break
 
         screen.blit(font.render("Pause ", 0, TEXT_COLOR), (132, 230))
+        main_screen.blit(screen, (0,0))
         pygame.display.update()
         clock.tick(30)
 
@@ -647,6 +723,7 @@ def main():
     # Initiate Objects
     mobs = pygame.sprite.Group()
     friends = pygame.sprite.Group()
+    bullets = pygame.sprite.Group()
 
     P = Player()
     enemy = Enemy()
@@ -658,14 +735,19 @@ def main():
 
     counter = 0
 
+    # Base offset, for screenshake
+    offset = repeat((0,0))
+
     # Load music
+    pygame.mixer.music.stop()
     pygame.mixer.music.load(music_game)
     pygame.mixer.music.play(-1)
-
+    # music_data[1].play(-1)
+    
     # Explosion Counter, this is how I can control how many particle burst the game will create when the player looses
     gm_counter = 2
     game_over_counter = 60
-    trigger = False
+    trigger = True
     explosion_particle = []
 
     while running:
@@ -678,37 +760,56 @@ def main():
                 if event.key == K_ESCAPE:
                     exit()
                 if event.key == K_j: # Debug
-                    # enemy.spawn(1, mobs)
-                    powerup.spawn(1, friends)
-                    print("Mob Generated")
+                    # powerup.spawn(1, friends)
+                    enemy.spawn(1, mobs)
                     for i in friends:
                         print(i.type)
                 if event.key == K_SPACE:
                     pause()
+                
+                if event.key == K_z:
+                    # TODO Figure out a way to fix sound issue
+                    # sfx_data[1].play(1)
+                    # pygame.mixer.Sound(sfx_shoot).play(1)
+                    # pygame.mixer.music.play(1)
+                    # pygame.mixer.music
+                    P.shoot(bullets)
+
 
         if len(mobs.sprites()) != 20:
             if counter % 15 == 0:
                 enemy.spawn(1, mobs)
+
+        if (0.02 >= round(random.random(), 3)):
+            powerup.spawn(1, friends)
         if counter >= 1000:
             counter = 0
         counter += 1
 
         screen.fill(BACKGROUND_COLOR)
- 
-        for i in range(8):
-            if pygame.sprite.spritecollideany(P, mobs):
+
+        for i in pygame.sprite.spritecollide(P, mobs, True, pygame.sprite.collide_rect):
+            if not P.get_shield():
                 P.is_hit = True
-                break
+
+                P.kill()
+            P.set_shield(False)
         
-        if P.is_hit == True:
+        pygame.sprite.groupcollide(bullets, mobs, True, True)
+
+        if P.is_hit:
             game_over_counter -= 1
             P.set_color(BACKGROUND_COLOR)
+            if trigger == True:
+                pygame.mixer.music.load(sfx_explosion)
+                pygame.mixer.music.play(0)
+                trigger = False
             while gm_counter != 0:
+                offset = screenshake()
                 for i in range(100):
                     explosion_particle.append([[P.rect.x, P.rect.y], [random.randint(0, 40) / 10 -2, random.randint(0, 40) / 10 -2], random.randint(4, 7)])
                 gm_counter -= 1
             if game_over_counter == 0:
-                
                 game_over(score)
             
         P.draw(True, screen)
@@ -716,7 +817,10 @@ def main():
         mobs.draw(screen)
 
         friends.draw(screen)
-        friends.update(score)
+        friends.update(score, P)
+
+        bullets.draw(screen)
+        bullets.update()
 
         P.key_manager()
         P.update()
@@ -731,8 +835,11 @@ def main():
                 explosion_particle.remove(i)
 
         screen.blit(font.render("HIGHSCORE ", 0, TEXT_COLOR), ( int(WINDOW_SIZE[0]/2)-46, 10))
-        screen.blit(font.render(highscore, 0, TEXT_COLOR), (WINDOW_SIZE[0]/2-20, 30))
+        screen.blit(font.render(highscore, 0, TEXT_COLOR), ( int(WINDOW_SIZE[0]/2-20), 30))
         screen.blit(font.render("SCORE " + str(score.get_score()), 0, TEXT_COLOR), (10, 40))
+        screen.blit(font.render("AMMO " + str(P.get_ammo()), 0, TEXT_COLOR), (230, 40))
+
+        main_screen.blit(screen, next(offset))
         pygame.display.update()
         clock.tick(30)
 
@@ -743,27 +850,16 @@ if __name__ == '__main__':
 """
 To implement:
 
-fade in fade out screen
-screenshake
-shooting
-bullet system
-shield
-sound effects
-changing
+screenshake DONE!
+shooting DONE!
+shield - DONE!
+sound effects (fix sound issue)
+
+remove unused variables
 
 add door sound (for fun)
 
 bullet sound: D6
 
-Explosion sound: E1
-
 Shield: E3
-        # if self.rect.top > WINDOW_SIZE[1]:
-        #     if not self.has_counted:
-        #         score_object.set_score(1)
-        #         self.has_counted = True
-
-        # if self.rect.bottom <= 0:
-        #     self.has_counted = Falseange(WINDOW_SIZE[0] - self.rect.width)
-
 """
