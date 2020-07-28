@@ -79,10 +79,17 @@ def library(target_list, *args):
     for i in args:
         target_list.append(pygame.mixer.Sound(i))
 
-def set_all_vol(sounds, mult=100-1):
+def set_all_vol(sounds, value):
     for sound in sounds:
         vol = sound.get_volume()
-        sound.set_volume(min(vol*mult, 1.0))
+        sound.set_volume(value/100)
+
+def get_all_vol(sounds):
+    n, s = 0, 0
+    for sound in sounds:
+        n += 1
+        s += sound.get_volume()
+    return s/n
 
 # Generate library
 library(sfx_data, sfx_explosion, sfx_bullet_to_mob, sfx_it)
@@ -499,14 +506,17 @@ def options():
     pointer_particle = Special_Effects()
 
     main_menu = Button(140, 40, 90, 450, "Back to Menu", ENEMY_COLOR, FONT_COLOR)
-    music_slider = Slider(190, 75, 100, 10)
-    sfx_slider = Slider(190, 115, 100, pygame.mixer.music.get_volume()*100-1)
+    music_slider = Slider(190, 75, 100, get_all_vol(music_data)*100-1)
+    sfx_slider = Slider(190, 115, 100, get_all_vol(sfx_data)*100-1)
 
     particle_effects = []
 
     while running:
         pygame.mixer.music.set_volume(sfx_slider.get_value()/100)
         mouse_x, mouse_y = pygame.mouse.get_pos()
+        
+        set_all_vol(music_data, music_slider.get_value())
+        set_all_vol(sfx_data, sfx_slider.get_value())
 
         if main_menu.rect.collidepoint(mouse_x, mouse_y):
             if is_clicking:
@@ -566,8 +576,9 @@ def menu():
     pointer_particle = Special_Effects()
 
     # Load music
-    pygame.mixer.music.load(music_theme)
-    pygame.mixer.music.play(-1)
+    # pygame.mixer.music.load(music_theme)
+    # pygame.mixer.music.play(-1)
+    music_data[0].play(-1)
 
     while True:
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -575,7 +586,7 @@ def menu():
         if start_game.rect.collidepoint(mouse_x, mouse_y):
             start_game.set_color(BUTTON_COLOR_SELECTED)
             if is_clicking:
-                pygame.mixer.music.fadeout(1300)
+                music_data[0].fadeout(1300)
                 fade(WINDOW_SIZE, main_screen)
                 main()
         else:
